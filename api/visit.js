@@ -1,32 +1,47 @@
-import { createClient } from '@supabase/supabase-js';
+/**
+ * 방문 카운터 (영구 저장: Upstash Redis)
+ * Vercel에서 Upstash Redis 연결 시 UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN 자동 주입.
+ */
+const KEY = 'hansome_board_visit_total';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
-);
-
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(204).end();
 
-  const today = new Date().toISOString().slice(0, 10);
-
-  if (req.method === 'POST') {
-    const { data: existing } = await supabase
-      .from('visits').select('count').eq('date', today).single();
-
-    if (existing) {
-      await supabase.from('visits')
-        .update({ count: existing.count + 1 }).eq('date', today);
-      return res.json({ count: existing.count + 1 });
-    } else {
-      await supabase.from('visits')
-        .insert({ date: today, count: 1 });
-      return res.json({ count: 1 });
-    }
+  let Redis;
+  try {
+    ({ Redis } = await import('@upstash/redis'));
+  } catch (e) {
+    return res.status(500).json({
+      count: 0,
+      error: '@upstash/redis 로드 실패. package.json dependencies 확인 후 재배포.',
+    });
   }
 
-  const { data } = await supabase
-    .from('visits').select('count').eq('date', today).single();
-  return res.json({ count: data?.count || 0 });
-}
+  let redis;
+  try {
+    redis = Redis.fromEnv();
+  } catch (e) {
+    return res.status(500).json({
+      count: 0,
+      error: 'Redis 환경변수 없음. Vercel에서 Upstash Redis 연결했는지 확인.',
+    });
+  }
+
+  try {
+    if (req.method === 'POST') {
+      const count = await redis.incr(KEY);
+      return res.status(200).json({ count: Number(count) });
+    }
+    if (req.method === 'GET') {
+      const v = await redis.get(KEY);
+      const n = v == null ? 0 : Number(v);
+      return res.status(200).json({ count: Number.isFinite(n) ? n : 0 });
+    }
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (e) {
+    return res.status(500).json({ count: 0, error: e.message || 'Redis error' });
+  }
+};
