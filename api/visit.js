@@ -7,7 +7,13 @@
  * 직접 Upstash 콘솔만 쓸 때:
  * - UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN
  */
-const KEY = 'hansome_board_visit_total';
+function getKey() {
+  const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `hansome_board_visit_${y}${m}${day}`;  // 예: hansome_board_visit_20260427
+}
 
 function createRedis(Redis) {
   const url =
@@ -56,11 +62,11 @@ module.exports = async function handler(req, res) {
 
   try {
     if (req.method === 'POST') {
-      const count = await redis.incr(KEY);
+      const count = await redis.incr(getKey());
       return res.status(200).json({ count: Number(count) });
     }
     if (req.method === 'GET') {
-      const v = await redis.get(KEY);
+      const v = await redis.get(getKey());
       const n = v == null ? 0 : Number(v);
       return res.status(200).json({ count: Number.isFinite(n) ? n : 0 });
     }
